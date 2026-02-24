@@ -9,6 +9,7 @@ const execAsync = promisify(exec);
 
 const APPDATA = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
 const SD_BASE = join(APPDATA, "Elgato", "StreamDeck");
+const PROFILES_V3 = join(SD_BASE, "ProfilesV3");
 const PROFILES_V2 = join(SD_BASE, "ProfilesV2");
 
 // ── Types ──
@@ -43,6 +44,8 @@ interface ActionConfig {
   LinkedTitle?: boolean;
   Name: string;
   UUID: string;
+  Plugin?: { Name: string; UUID: string; Version: string };
+  Resources?: unknown;
   Settings: Record<string, unknown>;
   State: number;
   States: ActionState[];
@@ -51,7 +54,7 @@ interface ActionConfig {
 interface PageManifest {
   Controllers: {
     Type: string;
-    Actions: Record<string, ActionConfig>;
+    Actions: Record<string, ActionConfig> | null;
     Icon?: string;
     Name?: string;
   }[];
@@ -81,19 +84,30 @@ export interface ButtonInfo {
 
 // ── Profile discovery ──
 
+async function getProfilesDir(): Promise<string> {
+  // Prefer V3, fall back to V2
+  try {
+    await readdir(PROFILES_V3);
+    return PROFILES_V3;
+  } catch {
+    return PROFILES_V2;
+  }
+}
+
 export async function listProfiles(): Promise<ProfileInfo[]> {
   const profiles: ProfileInfo[] = [];
+  const profilesDir = await getProfilesDir();
 
   let entries: string[];
   try {
-    entries = await readdir(PROFILES_V2);
+    entries = await readdir(profilesDir);
   } catch {
     return profiles;
   }
 
   for (const entry of entries) {
     if (!entry.endsWith(".sdProfile")) continue;
-    const profileDir = join(PROFILES_V2, entry);
+    const profileDir = join(profilesDir, entry);
     try {
       const raw = await readFile(join(profileDir, "manifest.json"), "utf-8");
       const manifest = JSON.parse(raw) as DeviceManifest;
@@ -127,11 +141,33 @@ export async function getDefaultProfile(): Promise<ProfileInfo> {
 
 // ── Page/layout reading ──
 
+async function resolvePageDir(
+  profilePath: string,
+  pageId: string
+): Promise<string> {
+  // Try exact match first, then uppercase (V3 uses uppercase UUIDs)
+  const profilesDir = join(profilePath, "Profiles");
+  const candidates = [pageId, pageId.toUpperCase()];
+  for (const candidate of candidates) {
+    try {
+      const dir = join(profilesDir, candidate);
+      await readFile(join(dir, "manifest.json"), "utf-8");
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(
+    `Page ${pageId} not found in profile. Available pages can be seen via streamdeck_list_profiles.`
+  );
+}
+
 async function readPageManifest(
   profilePath: string,
   pageId: string
 ): Promise<PageManifest> {
-  const manifestPath = join(profilePath, "Profiles", pageId, "manifest.json");
+  const resolved = await resolvePageDir(profilePath, pageId);
+  const manifestPath = join(profilePath, "Profiles", resolved, "manifest.json");
   const raw = await readFile(manifestPath, "utf-8");
   return JSON.parse(raw) as PageManifest;
 }
@@ -141,7 +177,15 @@ async function writePageManifest(
   pageId: string,
   manifest: PageManifest
 ): Promise<void> {
-  const dir = join(profilePath, "Profiles", pageId);
+  // Resolve to the actual directory name (may be uppercase)
+  let resolved: string;
+  try {
+    resolved = await resolvePageDir(profilePath, pageId);
+  } catch {
+    // New page - use uppercase UUID convention
+    resolved = pageId.toUpperCase();
+  }
+  const dir = join(profilePath, "Profiles", resolved);
   await mkdir(dir, { recursive: true });
   const manifestPath = join(dir, "manifest.json");
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
@@ -162,7 +206,7 @@ export async function getLayout(
 
   const buttons: ButtonInfo[] = [];
   for (const controller of manifest.Controllers) {
-    if (controller.Type !== "Keypad") continue;
+    if (controller.Type !== "Keypad" || !controller.Actions) continue;
     for (const [pos, action] of Object.entries(controller.Actions)) {
       const [rowStr, colStr] = pos.split(",");
       buttons.push({
@@ -188,6 +232,35 @@ export async function getLayout(
 
 // ── Action creation helpers ──
 
+// Plugin UUID mapping for V3 format
+const PLUGIN_MAP: Record<string, { Name: string; UUID: string; Version: string }> = {
+  "com.elgato.streamdeck.system.hotkey": {
+    Name: "Activate a Key Command",
+    UUID: "com.elgato.streamdeck.system.hotkey",
+    Version: "1.0",
+  },
+  "com.elgato.streamdeck.system.website": {
+    Name: "Website",
+    UUID: "com.elgato.streamdeck.system.website",
+    Version: "1.0",
+  },
+  "com.elgato.streamdeck.system.open": {
+    Name: "Open",
+    UUID: "com.elgato.streamdeck.system.open",
+    Version: "1.0",
+  },
+  "com.elgato.streamdeck.system.text": {
+    Name: "Text",
+    UUID: "com.elgato.streamdeck.system.text",
+    Version: "1.0",
+  },
+  "com.elgato.streamdeck.system.multimedia": {
+    Name: "Multimedia",
+    UUID: "com.elgato.streamdeck.system.multimedia",
+    Version: "1.0",
+  },
+};
+
 function makeAction(
   uuid: string,
   name: string,
@@ -199,6 +272,8 @@ function makeAction(
     ActionID: randomUUID(),
     LinkedTitle: !title,
     Name: name,
+    Plugin: PLUGIN_MAP[uuid],
+    Resources: null,
     UUID: uuid,
     Settings: settings,
     State: 0,
@@ -241,6 +316,9 @@ async function setButtonAction(
   if (!keypad) {
     keypad = { Type: "Keypad", Actions: {} };
     manifest.Controllers.push(keypad);
+  }
+  if (!keypad.Actions) {
+    keypad.Actions = {};
   }
 
   const position = `${row},${col}`;
@@ -413,7 +491,7 @@ export async function removeAction(
   const manifest = await readPageManifest(profile.path, targetPage);
 
   const keypad = manifest.Controllers.find((c) => c.Type === "Keypad");
-  if (!keypad) return;
+  if (!keypad || !keypad.Actions) return;
 
   const position = `${row},${col}`;
   delete keypad.Actions[position];
@@ -441,7 +519,7 @@ export async function setButtonTitle(
   const manifest = await readPageManifest(profile.path, targetPage);
 
   const keypad = manifest.Controllers.find((c) => c.Type === "Keypad");
-  if (!keypad) throw new Error("No keypad controller found");
+  if (!keypad || !keypad.Actions) throw new Error("No keypad controller found");
 
   const position = `${row},${col}`;
   const action = keypad.Actions[position];
