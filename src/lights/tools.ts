@@ -2,8 +2,255 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as keylight from "./keylight.js";
 import * as hue from "./hue.js";
+import * as tuya from "./tuya.js";
 
 export function registerLightTools(server: McpServer): void {
+  // ── Tuya Smart Light tools ──
+
+  server.tool(
+    "tuya_configure",
+    "Configure Tuya Smart Home credentials. Get these from the Tuya IoT Platform (iot.tuya.com).",
+    {
+      clientId: z.string().describe("Tuya API client ID"),
+      clientSecret: z.string().describe("Tuya API client secret"),
+      region: z
+        .enum(["us", "eu", "cn", "in"])
+        .describe("Tuya cloud region"),
+      deviceIds: z
+        .array(z.string())
+        .describe("Array of Tuya device IDs to control"),
+    },
+    async ({ clientId, clientSecret, region, deviceIds }) => {
+      try {
+        await tuya.saveConfig({ clientId, clientSecret, region, deviceIds });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Tuya configured with ${deviceIds.length} device(s) in ${region} region.`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "tuya_list_devices",
+    "List all configured Tuya devices with their current status (on/off, brightness, color temperature, online status)",
+    {},
+    async () => {
+      try {
+        const ids = await tuya.getDeviceIds();
+        const statuses = await Promise.all(
+          ids.map((id) =>
+            tuya.getDeviceStatus(id).catch((e) => ({
+              id,
+              name: id,
+              online: false,
+              on: false,
+              brightness: 0,
+              colorTemp: 0,
+              workMode: "unknown",
+              error: String(e),
+            }))
+          )
+        );
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(statuses, null, 2) },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "tuya_get_status",
+    "Get the current status of a specific Tuya device",
+    {
+      deviceId: z.string().describe("Tuya device ID"),
+    },
+    async ({ deviceId }) => {
+      try {
+        const status = await tuya.getDeviceStatus(deviceId);
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(status, null, 2) },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "tuya_set_switch",
+    "Turn a Tuya smart light on or off",
+    {
+      deviceId: z.string().describe("Tuya device ID"),
+      on: z.boolean().describe("true to turn on, false to turn off"),
+    },
+    async ({ deviceId, on }) => {
+      try {
+        await tuya.setSwitch(deviceId, on);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Device ${deviceId} turned ${on ? "on" : "off"}`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "tuya_toggle",
+    "Toggle a Tuya smart light on/off",
+    {
+      deviceId: z.string().describe("Tuya device ID"),
+    },
+    async ({ deviceId }) => {
+      try {
+        const newState = await tuya.toggleSwitch(deviceId);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Device toggled. New state: ${newState ? "on" : "off"}`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "tuya_set_brightness",
+    "Set the brightness of a Tuya smart light",
+    {
+      deviceId: z.string().describe("Tuya device ID"),
+      brightness: z
+        .number()
+        .min(0)
+        .max(100)
+        .describe("Brightness percentage (0-100)"),
+    },
+    async ({ deviceId, brightness }) => {
+      try {
+        await tuya.setBrightness(deviceId, brightness);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Device ${deviceId} brightness set to ${brightness}%`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "tuya_set_temperature",
+    "Set the color temperature of a Tuya smart light (0=warm/2700K, 100=cool/6500K)",
+    {
+      deviceId: z.string().describe("Tuya device ID"),
+      temperature: z
+        .number()
+        .min(0)
+        .max(100)
+        .describe("Color temperature percentage (0=warmest, 100=coolest)"),
+    },
+    async ({ deviceId, temperature }) => {
+      try {
+        await tuya.setTemperature(deviceId, temperature);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Device ${deviceId} color temperature set to ${temperature}%`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "tuya_all_on",
+    "Turn on all configured Tuya smart lights at once",
+    {},
+    async () => {
+      try {
+        await tuya.allOn();
+        return {
+          content: [{ type: "text", text: "All lights turned on" }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "tuya_all_off",
+    "Turn off all configured Tuya smart lights at once",
+    {},
+    async () => {
+      try {
+        await tuya.allOff();
+        return {
+          content: [{ type: "text", text: "All lights turned off" }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   // ── Elgato Key Light tools ──
 
   server.tool(
