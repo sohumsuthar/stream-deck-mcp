@@ -1,33 +1,27 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import * as manager from "./manager.js";
-import { renderText, loadImage } from "../utils/image.js";
+import * as profiles from "./profiles.js";
 
 export function registerStreamDeckTools(server: McpServer): void {
   server.tool(
-    "streamdeck_list_devices",
-    "List all connected Stream Deck devices",
+    "streamdeck_list_profiles",
+    "List all Stream Deck profiles configured in the Stream Deck software",
     {},
     async () => {
       try {
-        const devices = await manager.getDeviceList();
-        if (devices.length === 0) {
+        const list = await profiles.listProfiles();
+        if (list.length === 0) {
           return {
             content: [
               {
                 type: "text",
-                text: "No Stream Deck devices found. Make sure a device is connected via USB.",
+                text: "No profiles found. Is the Elgato Stream Deck software installed?",
               },
             ],
           };
         }
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(devices, null, 2),
-            },
-          ],
+          content: [{ type: "text", text: JSON.stringify(list, null, 2) }],
         };
       } catch (error) {
         return {
@@ -39,22 +33,70 @@ export function registerStreamDeckTools(server: McpServer): void {
   );
 
   server.tool(
-    "streamdeck_get_info",
-    "Get detailed info about the connected Stream Deck (model, serial, button count, icon size)",
+    "streamdeck_get_layout",
+    "Get the current button layout showing what action is assigned to each button on the Stream Deck",
     {
-      devicePath: z
+      profileId: z
         .string()
         .optional()
-        .describe("Path to a specific device. If omitted, uses the first available device."),
+        .describe("Profile ID (from streamdeck_list_profiles). Uses default if omitted."),
+      pageId: z
+        .string()
+        .optional()
+        .describe("Page ID. Uses current page if omitted."),
     },
-    async ({ devicePath }) => {
+    async ({ profileId, pageId }) => {
       try {
-        const info = await manager.getInfo(devicePath);
+        const layout = await profiles.getLayout(profileId, pageId);
+        return {
+          content: [{ type: "text", text: JSON.stringify(layout, null, 2) }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "streamdeck_add_hotkey",
+    "Add a keyboard shortcut/hotkey action to a Stream Deck button. After adding, call streamdeck_reload to apply changes.",
+    {
+      row: z.number().min(0).describe("Button row (0-based, top is 0)"),
+      col: z.number().min(0).describe("Button column (0-based, left is 0)"),
+      vKeyCode: z
+        .number()
+        .describe(
+          "Windows virtual key code for the key. Common codes: A=65, B=66...Z=90, 0=48...9=57, F1=112...F12=123, Enter=13, Escape=27, Space=32, Tab=9, Backspace=8, Delete=46, PrintScreen=44, Pause=19"
+        ),
+      ctrl: z.boolean().optional().describe("Hold Ctrl (default: false)"),
+      shift: z.boolean().optional().describe("Hold Shift (default: false)"),
+      alt: z.boolean().optional().describe("Hold Alt (default: false)"),
+      win: z.boolean().optional().describe("Hold Windows key (default: false)"),
+      title: z
+        .string()
+        .optional()
+        .describe("Label to show on the button"),
+      profileId: z.string().optional().describe("Profile ID (default profile if omitted)"),
+      pageId: z.string().optional().describe("Page ID (current page if omitted)"),
+    },
+    async ({ row, col, vKeyCode, ctrl, shift, alt, win, title, profileId, pageId }) => {
+      try {
+        await profiles.addHotkey(
+          row,
+          col,
+          { ctrl, shift, alt, win, key: "", vKeyCode },
+          title,
+          profileId,
+          pageId
+        );
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(info, null, 2),
+              text: `Hotkey added at button [${row},${col}]${title ? ` with title "${title}"` : ""}. Call streamdeck_reload to apply.`,
             },
           ],
         };
@@ -68,47 +110,24 @@ export function registerStreamDeckTools(server: McpServer): void {
   );
 
   server.tool(
-    "streamdeck_set_brightness",
-    "Set the brightness of the Stream Deck (0-100)",
+    "streamdeck_add_website",
+    "Add a website/URL action to a Stream Deck button. Pressing the button will open the URL in the default browser. Call streamdeck_reload to apply.",
     {
-      brightness: z.number().min(0).max(100).describe("Brightness percentage (0-100)"),
-      devicePath: z.string().optional().describe("Device path (optional)"),
+      row: z.number().min(0).describe("Button row (0-based)"),
+      col: z.number().min(0).describe("Button column (0-based)"),
+      url: z.string().describe("URL to open (e.g. https://github.com)"),
+      title: z.string().optional().describe("Label to show on the button"),
+      profileId: z.string().optional().describe("Profile ID"),
+      pageId: z.string().optional().describe("Page ID"),
     },
-    async ({ brightness, devicePath }) => {
+    async ({ row, col, url, title, profileId, pageId }) => {
       try {
-        await manager.setBrightness(brightness, devicePath);
-        return {
-          content: [
-            { type: "text", text: `Brightness set to ${brightness}%` },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error: ${error}` }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  server.tool(
-    "streamdeck_set_button_color",
-    "Fill a Stream Deck button with a solid RGB color",
-    {
-      button: z.number().min(0).describe("Button index (0-based)"),
-      r: z.number().min(0).max(255).describe("Red (0-255)"),
-      g: z.number().min(0).max(255).describe("Green (0-255)"),
-      b: z.number().min(0).max(255).describe("Blue (0-255)"),
-      devicePath: z.string().optional().describe("Device path (optional)"),
-    },
-    async ({ button, r, g, b, devicePath }) => {
-      try {
-        await manager.fillColor(button, r, g, b, devicePath);
+        await profiles.addWebsite(row, col, url, title, profileId, pageId);
         return {
           content: [
             {
               type: "text",
-              text: `Button ${button} set to RGB(${r}, ${g}, ${b})`,
+              text: `Website action added at [${row},${col}] → ${url}. Call streamdeck_reload to apply.`,
             },
           ],
         };
@@ -122,66 +141,28 @@ export function registerStreamDeckTools(server: McpServer): void {
   );
 
   server.tool(
-    "streamdeck_set_button_image",
-    "Set a Stream Deck button image from a URL or base64-encoded image",
+    "streamdeck_add_app",
+    "Add an application launcher to a Stream Deck button. Call streamdeck_reload to apply.",
     {
-      button: z.number().min(0).describe("Button index (0-based)"),
-      image: z
+      row: z.number().min(0).describe("Button row (0-based)"),
+      col: z.number().min(0).describe("Button column (0-based)"),
+      appPath: z
         .string()
         .describe(
-          "Image source: URL (http/https), data URI, or raw base64-encoded image"
+          'Full path to the application executable, or a system command like "notepad", "calc", "mspaint"'
         ),
-      devicePath: z.string().optional().describe("Device path (optional)"),
+      title: z.string().optional().describe("Label to show on the button"),
+      profileId: z.string().optional().describe("Profile ID"),
+      pageId: z.string().optional().describe("Page ID"),
     },
-    async ({ button, image, devicePath }) => {
+    async ({ row, col, appPath, title, profileId, pageId }) => {
       try {
-        const info = await manager.getInfo(devicePath);
-        const { width, height } = info.iconSize;
-        const buffer = await loadImage(image, width, height);
-        await manager.fillImage(button, buffer, devicePath);
-        return {
-          content: [
-            { type: "text", text: `Button ${button} image set` },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error: ${error}` }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  server.tool(
-    "streamdeck_set_button_text",
-    "Render text on a Stream Deck button",
-    {
-      button: z.number().min(0).describe("Button index (0-based)"),
-      text: z.string().describe("Text to display on the button"),
-      fontSize: z.number().optional().describe("Font size in pixels (auto-calculated if omitted)"),
-      color: z.string().optional().describe("Text color (CSS color string, default: white)"),
-      backgroundColor: z
-        .string()
-        .optional()
-        .describe("Background color (CSS color string, default: black)"),
-      devicePath: z.string().optional().describe("Device path (optional)"),
-    },
-    async ({ button, text, fontSize, color, backgroundColor, devicePath }) => {
-      try {
-        const info = await manager.getInfo(devicePath);
-        const { width, height } = info.iconSize;
-        const buffer = await renderText(text, width, height, {
-          fontSize,
-          color,
-          backgroundColor,
-        });
-        await manager.fillImage(button, buffer, devicePath);
+        await profiles.addAppLaunch(row, col, appPath, title, profileId, pageId);
         return {
           content: [
             {
               type: "text",
-              text: `Button ${button} set to text: "${text}"`,
+              text: `App launcher added at [${row},${col}] → ${appPath}. Call streamdeck_reload to apply.`,
             },
           ],
         };
@@ -195,18 +176,29 @@ export function registerStreamDeckTools(server: McpServer): void {
   );
 
   server.tool(
-    "streamdeck_clear_button",
-    "Clear a specific Stream Deck button (set to black)",
+    "streamdeck_add_text",
+    "Add a text paste action to a Stream Deck button. Pressing the button will type/paste the specified text. Call streamdeck_reload to apply.",
     {
-      button: z.number().min(0).describe("Button index (0-based)"),
-      devicePath: z.string().optional().describe("Device path (optional)"),
+      row: z.number().min(0).describe("Button row (0-based)"),
+      col: z.number().min(0).describe("Button column (0-based)"),
+      text: z.string().describe("Text to paste when the button is pressed"),
+      sendEnter: z
+        .boolean()
+        .optional()
+        .describe("Press Enter after pasting (default: false)"),
+      title: z.string().optional().describe("Label to show on the button"),
+      profileId: z.string().optional().describe("Profile ID"),
+      pageId: z.string().optional().describe("Page ID"),
     },
-    async ({ button, devicePath }) => {
+    async ({ row, col, text, sendEnter, title, profileId, pageId }) => {
       try {
-        await manager.clearKey(button, devicePath);
+        await profiles.addText(row, col, text, sendEnter, title, profileId, pageId);
         return {
           content: [
-            { type: "text", text: `Button ${button} cleared` },
+            {
+              type: "text",
+              text: `Text action added at [${row},${col}]. Call streamdeck_reload to apply.`,
+            },
           ],
         };
       } catch (error) {
@@ -219,18 +211,117 @@ export function registerStreamDeckTools(server: McpServer): void {
   );
 
   server.tool(
-    "streamdeck_clear_all",
-    "Clear all Stream Deck buttons (set to black)",
+    "streamdeck_add_multimedia",
+    "Add a media control button (play/pause, next, previous, volume up/down, mute). Call streamdeck_reload to apply.",
     {
-      devicePath: z.string().optional().describe("Device path (optional)"),
+      row: z.number().min(0).describe("Button row (0-based)"),
+      col: z.number().min(0).describe("Button column (0-based)"),
+      mediaAction: z
+        .enum([
+          "play_pause",
+          "next",
+          "previous",
+          "volume_up",
+          "volume_down",
+          "mute",
+        ])
+        .describe("The media control action"),
+      title: z.string().optional().describe("Label to show on the button"),
+      profileId: z.string().optional().describe("Profile ID"),
+      pageId: z.string().optional().describe("Page ID"),
     },
-    async ({ devicePath }) => {
+    async ({ row, col, mediaAction, title, profileId, pageId }) => {
       try {
-        await manager.clearPanel(devicePath);
+        await profiles.addMultimedia(row, col, mediaAction, title, profileId, pageId);
         return {
           content: [
-            { type: "text", text: "All buttons cleared" },
+            {
+              type: "text",
+              text: `Media action "${mediaAction}" added at [${row},${col}]. Call streamdeck_reload to apply.`,
+            },
           ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "streamdeck_remove_action",
+    "Remove the action from a Stream Deck button, making it blank. Call streamdeck_reload to apply.",
+    {
+      row: z.number().min(0).describe("Button row (0-based)"),
+      col: z.number().min(0).describe("Button column (0-based)"),
+      profileId: z.string().optional().describe("Profile ID"),
+      pageId: z.string().optional().describe("Page ID"),
+    },
+    async ({ row, col, profileId, pageId }) => {
+      try {
+        await profiles.removeAction(row, col, profileId, pageId);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Action removed from [${row},${col}]. Call streamdeck_reload to apply.`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "streamdeck_set_title",
+    "Change the title/label displayed on a Stream Deck button. Call streamdeck_reload to apply.",
+    {
+      row: z.number().min(0).describe("Button row (0-based)"),
+      col: z.number().min(0).describe("Button column (0-based)"),
+      title: z.string().describe("New title text"),
+      titleColor: z
+        .string()
+        .optional()
+        .describe("Title color as hex (e.g. #ff0000 for red). Default: white"),
+      profileId: z.string().optional().describe("Profile ID"),
+      pageId: z.string().optional().describe("Page ID"),
+    },
+    async ({ row, col, title, titleColor, profileId, pageId }) => {
+      try {
+        await profiles.setButtonTitle(row, col, title, titleColor, profileId, pageId);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Title set to "${title}" on button [${row},${col}]. Call streamdeck_reload to apply.`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "streamdeck_reload",
+    "Restart the Stream Deck software to apply any profile changes made with the add/remove tools",
+    {},
+    async () => {
+      try {
+        const result = await profiles.reloadStreamDeck();
+        return {
+          content: [{ type: "text", text: result }],
         };
       } catch (error) {
         return {
