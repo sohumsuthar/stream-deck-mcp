@@ -1,2 +1,2 @@
 @echo off
-node "P:\sohum\stream-deck-mcp\build\cli.js" white 0
+curl -s http://127.0.0.1:7891/white/0 >nul 2>&1

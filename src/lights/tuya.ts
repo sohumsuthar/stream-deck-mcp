@@ -273,20 +273,66 @@ export async function toggleSwitch(id: string): Promise<boolean> {
   return newVal;
 }
 
+async function getRawStatus(
+  id: string
+): Promise<Record<string, unknown>> {
+  const status = (await tuyaGet(`/v1.0/devices/${id}/status`)) as {
+    code: string;
+    value: unknown;
+  }[];
+  const m: Record<string, unknown> = {};
+  for (const s of status ?? []) m[s.code] = s.value;
+  return m;
+}
+
 export async function setBrightness(
   id: string,
   percent: number
 ): Promise<void> {
-  const mapped = Math.max(
-    10,
-    Math.min(1000, Math.round((percent / 100) * 990 + 10))
-  );
-  await tuyaPost(`/v1.0/devices/${id}/commands`, {
-    commands: [
-      { code: "bright_value_v2", value: mapped },
-      { code: "work_mode", value: "white" },
-    ],
-  });
+  const m = await getRawStatus(id);
+  const workMode = (m.work_mode ?? "white") as string;
+
+  if (workMode === "colour") {
+    const colorStr = (m.colour_data_v2 ?? '{"h":0,"s":0,"v":1000}') as string;
+    const color = JSON.parse(colorStr);
+    color.v = Math.max(10, Math.min(1000, Math.round((percent / 100) * 990 + 10)));
+    await tuyaPost(`/v1.0/devices/${id}/commands`, {
+      commands: [{ code: "colour_data_v2", value: JSON.stringify(color) }],
+    });
+  } else {
+    const mapped = Math.max(
+      10,
+      Math.min(1000, Math.round((percent / 100) * 990 + 10))
+    );
+    await tuyaPost(`/v1.0/devices/${id}/commands`, {
+      commands: [{ code: "bright_value_v2", value: mapped }],
+    });
+  }
+}
+
+export async function adjustBrightness(
+  id: string,
+  delta: number
+): Promise<number> {
+  const m = await getRawStatus(id);
+  const workMode = (m.work_mode ?? "white") as string;
+
+  if (workMode === "colour") {
+    const colorStr = (m.colour_data_v2 ?? '{"h":0,"s":0,"v":1000}') as string;
+    const color = JSON.parse(colorStr);
+    color.v = Math.max(10, Math.min(1000, color.v + Math.round(delta * 10)));
+    await tuyaPost(`/v1.0/devices/${id}/commands`, {
+      commands: [{ code: "colour_data_v2", value: JSON.stringify(color) }],
+    });
+    return Math.round((color.v - 10) / 990 * 100);
+  } else {
+    const current = (m.bright_value_v2 ?? m.bright_value ?? 500) as number;
+    const newVal = Math.max(10, Math.min(1000, current + Math.round(delta * 10)));
+    await tuyaPost(`/v1.0/devices/${id}/commands`, {
+      commands: [{ code: "bright_value_v2", value: newVal }],
+    });
+    return Math.round((newVal - 10) / 990 * 100);
+  }
 }
 
 export async function setTemperature(

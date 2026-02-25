@@ -1,2 +1,2 @@
 @echo off
-node "P:\sohum\stream-deck-mcp\build\cli.js" brightness-up
+curl -s http://127.0.0.1:7891/brightness-up >nul 2>&1

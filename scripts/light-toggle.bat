@@ -1,2 +1,2 @@
 @echo off
-node "P:\sohum\stream-deck-mcp\build\cli.js" toggle
+curl -s http://127.0.0.1:7891/toggle >nul 2>&1
