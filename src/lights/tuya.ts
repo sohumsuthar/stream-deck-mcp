@@ -302,6 +302,23 @@ export async function setTemperature(
   });
 }
 
+export async function setColor(
+  id: string,
+  h: number,
+  s: number,
+  v: number
+): Promise<void> {
+  await tuyaPost(`/v1.0/devices/${id}/commands`, {
+    commands: [
+      { code: "work_mode", value: "colour" },
+      {
+        code: "colour_data_v2",
+        value: JSON.stringify({ h, s, v }),
+      },
+    ],
+  });
+}
+
 export async function allOn(): Promise<void> {
   const ids = await getDeviceIds();
   await Promise.all(ids.map((id) => setSwitch(id, true).catch(() => {})));

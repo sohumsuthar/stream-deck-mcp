@@ -86,6 +86,26 @@ try {
       });
       break;
 
+    case "color": {
+      const h = parseInt(args[0] ?? "0", 10);
+      const s = parseInt(args[1] ?? "1000", 10);
+      const v = parseInt(args[2] ?? "1000", 10);
+      await forEachDevice(async (id) => {
+        await tuya.setColor(id, h, s, v);
+      });
+      console.log(`Color set: H=${h} S=${s} V=${v}`);
+      break;
+    }
+
+    case "white": {
+      const temp = parseInt(args[0] ?? "500", 10);
+      await forEachDevice(async (id) => {
+        await tuya.setTemperature(id, Math.round(temp / 10));
+      });
+      console.log(`White mode: temp=${temp}`);
+      break;
+    }
+
     case "status":
       await forEachDevice(async (id) => {
         const s = await tuya.getDeviceStatus(id);
@@ -98,7 +118,9 @@ try {
       console.log(
         "Commands: on, off, toggle, brightness <0-100>, brightness-up,"
       );
-      console.log("          brightness-down, warmer, cooler, status");
+      console.log(
+        "          brightness-down, color <h> <s> <v>, white <temp>, status"
+      );
       break;
   }
 } catch (err) {
