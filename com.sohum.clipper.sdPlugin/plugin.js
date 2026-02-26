@@ -4,7 +4,7 @@
 
 var SERVER_URL = "http://127.0.0.1:7891";
 var MIC_URL = "http://127.0.0.1:9090";
-var START_VBS = "P:\\sohum\\stream-deck-mcp\\scripts\\start-server.vbs";
+var START_VBS = "file:///P:/sohum/stream-deck-mcp/scripts/start-server.vbs";
 var POLL_INTERVAL = 4000;
 var FAST_POLL = 1500;
 

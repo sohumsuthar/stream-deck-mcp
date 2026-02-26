@@ -104,8 +104,46 @@ export function startBuffering(): { ok: boolean; error?: string } {
   }
 }
 
+/** Synchronous sleep without busy-waiting. */
+function sleepMs(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** Stop FFmpeg and wait for it to fully exit so all segments are finalized. */
+function stopBufferingSync(): void {
+  if (!ffmpegProcess) return;
+  const pid = ffmpegProcess.pid;
+  try {
+    ffmpegProcess.stdin?.write("q");
+    ffmpegProcess.stdin?.end();
+  } catch {
+    try { ffmpegProcess.kill(); } catch {}
+  }
+  ffmpegProcess = null;
+  startedAt = null;
+
+  // Poll until process exits — segments need moov atom written on close
+  if (pid) {
+    for (let i = 0; i < 30; i++) { // up to 3 seconds
+      try {
+        process.kill(pid, 0); // throws when process is gone
+        sleepMs(100);
+      } catch {
+        break;
+      }
+    }
+  }
+}
+
 /** Save the last ~90 seconds of buffered video as a clip. */
 export function saveClip(): { ok: boolean; file?: string; error?: string } {
+  const wasRunning = ffmpegProcess !== null;
+
+  // Gracefully stop FFmpeg so the in-progress segment gets finalized.
+  // Without this, the current segment has no moov atom and can't be read,
+  // causing the clip to miss the last 0-10 seconds of video.
+  stopBufferingSync();
+
   // Get all segment files sorted by modification time (oldest first)
   let segments: { name: string; mtime: number }[];
   try {
@@ -118,10 +156,12 @@ export function saveClip(): { ok: boolean; file?: string; error?: string } {
       }))
       .sort((a, b) => a.mtime - b.mtime);
   } catch {
+    if (wasRunning) startBuffering();
     return { ok: false, error: "No segments found. Is the buffer running?" };
   }
 
   if (segments.length === 0) {
+    if (wasRunning) startBuffering();
     return { ok: false, error: "No segments yet. Wait a few seconds." };
   }
 
@@ -133,6 +173,7 @@ export function saveClip(): { ok: boolean; file?: string; error?: string } {
   const ts = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
   const outputFile = path.join(CLIPS_DIR, `cam_${ts}.mp4`);
 
+  let result: { ok: boolean; file?: string; error?: string };
   try {
     execSync(
       `ffmpeg -f concat -safe 0 -i "${concatFile}" -c copy -movflags +faststart -y "${outputFile}"`,
@@ -140,21 +181,18 @@ export function saveClip(): { ok: boolean; file?: string; error?: string } {
     );
     const stat = fs.statSync(outputFile);
     console.log(`cam clip: ${outputFile} (${(stat.size / 1024 / 1024).toFixed(1)}MB)`);
-    return { ok: true, file: outputFile };
+    result = { ok: true, file: outputFile };
   } catch (err) {
-    return { ok: false, error: `concat failed: ${err}` };
+    result = { ok: false, error: `concat failed: ${err}` };
   }
+
+  // Restart buffer immediately so recording continues
+  if (wasRunning) startBuffering();
+
+  return result;
 }
 
 /** Stop the background buffer. */
 export function stopBuffering(): void {
-  if (!ffmpegProcess) return;
-  try {
-    ffmpegProcess.stdin?.write("q");
-    ffmpegProcess.stdin?.end();
-  } catch {
-    ffmpegProcess.kill("SIGTERM");
-  }
-  ffmpegProcess = null;
-  startedAt = null;
+  stopBufferingSync();
 }
