@@ -72,26 +72,34 @@ export function startBuffering(): { ok: boolean; error?: string } {
   ];
 
   try {
-    ffmpegProcess = spawn("ffmpeg", args, {
+    const proc = spawn("ffmpeg", args, {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
+    ffmpegProcess = proc;
 
     startedAt = Date.now();
 
-    ffmpegProcess.on("error", (err) => {
+    // Guard: only clear state if this is still the active process.
+    // Without this, the old process's exit handler fires after a
+    // restart and overwrites the new process reference with null.
+    proc.on("error", (err) => {
       console.error(`cam-buffer ffmpeg error: ${err.message}`);
-      ffmpegProcess = null;
-      startedAt = null;
+      if (ffmpegProcess === proc) {
+        ffmpegProcess = null;
+        startedAt = null;
+      }
     });
 
-    ffmpegProcess.on("exit", (code) => {
+    proc.on("exit", (code) => {
       console.log(`cam-buffer ffmpeg exited: ${code}`);
-      ffmpegProcess = null;
-      startedAt = null;
+      if (ffmpegProcess === proc) {
+        ffmpegProcess = null;
+        startedAt = null;
+      }
     });
 
-    ffmpegProcess.stderr?.on("data", (data: Buffer) => {
+    proc.stderr?.on("data", (data: Buffer) => {
       const msg = data.toString().trim();
       if (msg && !msg.startsWith("frame=")) console.error(`cam: ${msg}`);
     });
