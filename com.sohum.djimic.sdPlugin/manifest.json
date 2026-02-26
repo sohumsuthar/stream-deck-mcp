@@ -1,0 +1,41 @@
+{
+  "Actions": [
+    {
+      "Icon": "imgs/actionIcon",
+      "Name": "Clip KB Audio",
+      "States": [
+        {
+          "Image": "imgs/action-ready",
+          "TitleAlignment": "bottom",
+          "FontSize": "10"
+        },
+        {
+          "Image": "imgs/action-error",
+          "TitleAlignment": "bottom",
+          "FontSize": "10"
+        }
+      ],
+      "SupportedInMultiActions": true,
+      "Tooltip": "Clip last 90s of DJI Mic keyboard audio",
+      "UUID": "com.sohum.djimic.clip"
+    }
+  ],
+  "Author": "Sohum Suthar",
+  "Description": "Clip keyboard audio from DJI Mic 2 via Bluetooth",
+  "Name": "DJI Mic Bridge",
+  "Icon": "imgs/pluginIcon",
+  "Version": "1.0.0",
+  "CodePath": "plugin.html",
+  "Category": "DJI Mic",
+  "CategoryIcon": "imgs/pluginIcon",
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "6.4"
+  }
+}
