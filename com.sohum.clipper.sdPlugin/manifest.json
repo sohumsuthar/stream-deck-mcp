@@ -1,0 +1,60 @@
+{
+  "Actions": [
+    {
+      "Icon": "imgs/actionIcon",
+      "Name": "Clip",
+      "States": [
+        {
+          "Image": "imgs/action-ready",
+          "TitleAlignment": "bottom",
+          "FontSize": "10"
+        },
+        {
+          "Image": "imgs/action-error",
+          "TitleAlignment": "bottom",
+          "FontSize": "10"
+        }
+      ],
+      "SupportedInMultiActions": true,
+      "Tooltip": "Clip last 90s of camera video + mic audio",
+      "UUID": "com.sohum.clipper.clip"
+    },
+    {
+      "Icon": "imgs/micActionIcon",
+      "Name": "Mic Clip",
+      "States": [
+        {
+          "Image": "imgs/mic-ready",
+          "TitleAlignment": "bottom",
+          "FontSize": "10"
+        },
+        {
+          "Image": "imgs/mic-error",
+          "TitleAlignment": "bottom",
+          "FontSize": "10"
+        }
+      ],
+      "SupportedInMultiActions": true,
+      "Tooltip": "Clip last 90s of mic audio only",
+      "UUID": "com.sohum.clipper.micclip"
+    }
+  ],
+  "Author": "Sohum Suthar",
+  "Description": "Camera + mic clip buffer with live status",
+  "Name": "Clipper",
+  "Icon": "imgs/pluginIcon",
+  "Version": "1.0.0",
+  "CodePath": "plugin.html",
+  "Category": "Clipper",
+  "CategoryIcon": "imgs/pluginIcon",
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "6.4"
+  }
+}
