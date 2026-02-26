@@ -10,7 +10,9 @@
  */
 
 import http from "node:http";
+import { exec } from "node:child_process";
 import * as tuya from "./lights/tuya.js";
+import * as camera from "./camera.js";
 
 const PORT = 7891;
 
@@ -66,6 +68,42 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify(statuses, null, 2));
     });
     return;
+  }
+
+  // ── Camera endpoints (return JSON, not fire-and-forget) ──
+
+  if (cmd === "camera") {
+    const sub = parts[1] ?? "clip";
+    const json = (data: unknown) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(data));
+    };
+
+    switch (sub) {
+      case "status":
+        json(camera.getStatus());
+        return;
+      case "start": {
+        if (!camera.isBuffering()) camera.startBuffering();
+        json(camera.getStatus());
+        return;
+      }
+      case "stop":
+        camera.stopBuffering();
+        json({ ok: true });
+        return;
+      case "clip":
+      default: {
+        if (!camera.isBuffering()) {
+          camera.startBuffering();
+          console.log("Camera buffer auto-started (clip will be short on first press)");
+        }
+        const result = camera.saveClip();
+        console.log(`Camera clip: ${JSON.stringify(result)}`);
+        json(result);
+        return;
+      }
+    }
   }
 
   // Everything else: respond immediately, execute in background
@@ -227,6 +265,23 @@ tuya
 
     server.listen(PORT, "127.0.0.1", () => {
       console.log(`Light server ready on http://127.0.0.1:${PORT}`);
+
+      // Auto-start camera buffer
+      const camResult = camera.startBuffering();
+      console.log(`Camera buffer: ${camResult.ok ? "started" : camResult.error}`);
+
+      // Auto-start mic service if not already running
+      fetch("http://127.0.0.1:9090/status", { signal: AbortSignal.timeout(1000) })
+        .then(() => console.log("Mic service: already running"))
+        .catch(() => {
+          console.log("Mic service: starting...");
+          const mic = exec(
+            'cmd /C "cd /d P:\\sohum\\dji-mic-bridge && .venv\\Scripts\\activate.bat && python service.py"',
+            { windowsHide: true },
+          );
+          mic.unref();
+          console.log("Mic service: launched");
+        });
     });
   })
   .catch((err) => {
