@@ -1,11 +1,11 @@
-import { readdir, readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, copyFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { exec } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const APPDATA = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
 const SD_BASE = join(APPDATA, "Elgato", "StreamDeck");
@@ -540,7 +540,7 @@ export async function setButtonTitle(
 export async function reloadStreamDeck(): Promise<string> {
   try {
     // Kill the Stream Deck process
-    await execAsync('taskkill /IM "StreamDeck.exe" /F').catch(() => {});
+    await execFileAsync("taskkill", ["/IM", "StreamDeck.exe", "/F"]).catch(() => {});
     // Wait a moment
     await new Promise((r) => setTimeout(r, 1500));
     // Restart it
@@ -562,7 +562,9 @@ export async function reloadStreamDeck(): Promise<string> {
     ];
     for (const p of paths) {
       try {
-        exec(`"${p}"`);
+        await access(p);
+        const process = spawn(p, [], { detached: true, stdio: "ignore", windowsHide: true });
+        process.unref();
         return `Stream Deck software restarted from ${p}`;
       } catch {
         continue;
