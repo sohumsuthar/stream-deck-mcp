@@ -10,7 +10,7 @@
  */
 
 import http from "node:http";
-import { exec } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as tuya from "./lights/tuya.js";
 import * as camera from "./camera.js";
 
@@ -275,9 +275,10 @@ tuya
         .then(() => console.log("Mic service: already running"))
         .catch(() => {
           console.log("Mic service: starting...");
-          const mic = exec(
-            'cmd /C "cd /d P:\\sohum\\dji-mic-bridge && .venv\\Scripts\\activate.bat && python service.py"',
-            { windowsHide: true },
+          const mic = spawn(
+            "cmd",
+            ["/C", "cd /d P:\\sohum\\dji-mic-bridge && .venv\\Scripts\\activate.bat && python service.py"],
+            { windowsHide: true, detached: true, stdio: "ignore" },
           );
           mic.unref();
           console.log("Mic service: launched");
